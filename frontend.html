@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>XDR Test</title>
+</head>
+<body>
+
+<h3>XDR Simulator</h3>
+
+<label>Status:</label>
+<select id="status">
+  <option value="success">Success</option>
+  <option value="failed">Failed</option>
+</select>
+
+<br><br>
+
+<button onclick="sendLog()">Send Log</button>
+
+<script>
+async function sendLog() {
+  const status = document.getElementById("status").value;
+
+  await fetch("http://localhost:5000/log", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      user: "fanza",
+      action: "klik_button",
+      status: status
+    })
+  });
+
+  alert("log sent! status: " + status);
+}
+</script>
+
+</body>
+</html>
