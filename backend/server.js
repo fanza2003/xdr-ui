@@ -9,11 +9,11 @@ app.use(cors());
 
 // 🔎 ELASTIC
 const client = new Client({
-  node: "http://localhost:9200",
+  node: process.env.ELASTIC_URL || "http://localhost:9200",
 });
 
 // 🔑 API KEY ABUSEIPDB
-const ABUSE_API_KEY = "3dc4c1bfab205a576718158518a75ee9279be3c578a0894d1e4a8cf0bd434a7db113f5c8aa585cf5";
+ const ABUSE_API_KEY = process.env.ABUSE_API_KEY;
 
 // 🔥 FUNCTION CTI + GEO
 async function checkIP(ip) {

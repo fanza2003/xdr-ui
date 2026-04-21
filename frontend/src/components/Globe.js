@@ -65,7 +65,7 @@ export default function Globe() {
 
   useEffect(() => {
     const fetchThreats = () => {
-      fetch("http://localhost:5000/threats")
+      fetch("/api/threats")
         .then((res) => res.json())
         .then((data) => {
           console.log("🌍 Threats loaded:", data); // 🔍 debug

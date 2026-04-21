@@ -17,13 +17,13 @@ function Dashboard() {
   useEffect(() => {
     const fetchData = () => {
       // STATS
-      fetch("http://localhost:5000/stats")
+      fetch("/api/stats")
         .then((res) => res.json())
         .then((data) => setStats(data))
         .catch((err) => console.error("Stats error:", err));
 
       // THREATS (buat Top Attacker di right panel)
-      fetch("http://localhost:5000/threats")
+      fetch("/api/threats")
         .then((res) => res.json())
         .then((data) => setThreats(data))
         .catch((err) => console.error("Threats error:", err));
@@ -85,7 +85,7 @@ function Dashboard() {
   <button
     onClick={() => {
       if (!window.confirm("Yakin mau hapus semua data threat?")) return;
-      fetch("http://localhost:5000/clear-logs", { method: "DELETE" })
+      fetch("/api/clear-logs", { method: "DELETE" })
         .then((res) => res.json())
         .then(() => {
           alert("✅ Data cleared!");

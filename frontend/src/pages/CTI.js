@@ -8,7 +8,7 @@ function CTI() {
   const [history, setHistory] = useState([]);
 
   const fetchHistory = () => {
-    fetch("http://localhost:5000/threats")
+    fetch("/api/threats")
       .then((res) => res.json())
       .then((data) => setHistory(data.slice(0, 10)))
       .catch((err) => console.error(err));
@@ -21,7 +21,7 @@ function CTI() {
   const checkIP = () => {
     if (!ip.trim()) return;
     setLoading(true);
-    fetch("http://localhost:5000/check-ip", {
+    fetch("/api/check-ip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ip }),
