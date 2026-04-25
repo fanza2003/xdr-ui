@@ -70,67 +70,67 @@ function Dashboard() {
         }}
       >
         {/* HEADER */}
-        {/* HEADER */}
-<div
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  }}
->
-  <h1 style={{ fontSize: "22px", fontWeight: 700, margin: 0 }}>
-    🔥 XDR Dashboard
-  </h1>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <h1 style={{ fontSize: "22px", fontWeight: 700, margin: 0 }}>
+            🔥 XDR Dashboard
+          </h1>
 
-  <button
-    onClick={() => {
-      if (!window.confirm("Yakin mau hapus semua data threat?")) return;
-      fetch("/api/clear-logs", { method: "DELETE" })
-        .then((res) => res.json())
-        .then(() => {
-          alert("✅ Data cleared!");
-          window.location.reload();
-        })
-        .catch((err) => {
-          console.error(err);
-          alert("❌ Gagal clear data");
-        });
-    }}
-    style={{
-      padding: "8px 14px",
-      background: "transparent",
-      border: "1px solid #ef4444",
-      borderRadius: "6px",
-      color: "#ef4444",
-      fontSize: "12px",
-      fontWeight: 600,
-      cursor: "pointer",
-      transition: "all 0.15s ease",
-    }}
-    onMouseEnter={(e) => {
-      e.target.style.background = "#ef4444";
-      e.target.style.color = "white";
-    }}
-    onMouseLeave={(e) => {
-      e.target.style.background = "transparent";
-      e.target.style.color = "#ef4444";
-    }}
-  >
-    🗑️ Clear Data
-  </button>
-</div>
+          <button
+            onClick={() => {
+              if (!window.confirm("Yakin mau hapus semua data threat?")) return;
+              fetch("/api/clear-logs", { method: "DELETE" })
+                .then((res) => res.json())
+                .then(() => {
+                  alert("✅ Data cleared!");
+                  window.location.reload();
+                })
+                .catch((err) => {
+                  console.error(err);
+                  alert("❌ Gagal clear data");
+                });
+            }}
+            style={{
+              padding: "8px 14px",
+              background: "transparent",
+              border: "1px solid #ef4444",
+              borderRadius: "6px",
+              color: "#ef4444",
+              fontSize: "12px",
+              fontWeight: 600,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = "#ef4444";
+              e.target.style.color = "white";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = "transparent";
+              e.target.style.color = "#ef4444";
+            }}
+          >
+            🗑️ Clear Data
+          </button>
+        </div>
 
         {/* CARDS */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: "repeat(4, 1fr)",
             gap: "16px",
             flexShrink: 0,
           }}
         >
           <StatsCard title="Total Checks" value={stats.total} color="#22d3ee" />
           <StatsCard title="Malicious" value={stats.malicious} color="#ef4444" />
+          <StatsCard title="Suspicious" value={stats.suspicious} color="#f59e0b" />
           <StatsCard title="Clean" value={stats.clean} color="#22c55e" />
         </div>
 

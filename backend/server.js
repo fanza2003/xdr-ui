@@ -13,12 +13,32 @@ const client = new Client({
 });
 
 // 🔑 API KEY ABUSEIPDB
- const ABUSE_API_KEY = process.env.ABUSE_API_KEY;
+const ABUSE_API_KEY = process.env.ABUSE_API_KEY;
+
+// 🤖 N8N WEBHOOK (AI Threat Analysis)
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+
+// 🤖 Helper: trigger n8n workflow (fire-and-forget, non-blocking)
+function triggerN8N(payload) {
+  if (!N8N_WEBHOOK_URL) {
+    console.log("⚠️ N8N_WEBHOOK_URL not set, skip AI analysis");
+    return;
+  }
+
+  axios.post(N8N_WEBHOOK_URL, payload, {
+    timeout: 5000,
+  })
+    .then(() => {
+      console.log(`🤖 AI analysis triggered for ${payload.ip}`);
+    })
+    .catch((err) => {
+      console.error(`❌ n8n webhook failed: ${err.message}`);
+    });
+}
 
 // 🔥 FUNCTION CTI + GEO
 async function checkIP(ip) {
   try {
-    // 🛡️ CTI - AbuseIPDB
     const abuseRes = await axios.get(
       "https://api.abuseipdb.com/api/v2/check",
       {
@@ -35,11 +55,9 @@ async function checkIP(ip) {
 
     const abuse = abuseRes.data.data;
 
-    // 🌍 GEO - ip-api
     const geoRes = await axios.get(`http://ip-api.com/json/${ip}`);
     const geo = geoRes.data;
 
-    // 🧠 THREAT LOGIC
     let threat = "clean";
     if (abuse.abuseConfidenceScore > 70) {
       threat = "malicious";
@@ -47,7 +65,6 @@ async function checkIP(ip) {
       threat = "suspicious";
     }
 
-    // 🔍 REASON
     let reason = [];
     if (abuse.totalReports > 0) {
       reason.push(`Reported ${abuse.totalReports} times`);
@@ -70,15 +87,14 @@ async function checkIP(ip) {
       country: geo.country,
       city: geo.city,
       isp: geo.isp,
-      lat: geo.lat,     // 🔥 BARU
-      lng: geo.lon,     // 🔥 BARU (ip-api pake `lon` bukan `lng`)
+      lat: geo.lat,
+      lng: geo.lon,
       reason,
     };
 
   } catch (err) {
     console.error("CTI ERROR:", err.message);
 
-    // 🧪 fallback biar ga crash
     return {
       ip,
       threat: "unknown",
@@ -86,8 +102,8 @@ async function checkIP(ip) {
       country: "unknown",
       city: "-",
       isp: "-",
-      lat: null,        // 🔥 BARU
-      lng: null,        // 🔥 BARU
+      lat: null,
+      lng: null,
       reason: ["fallback mode"],
     };
   }
@@ -111,13 +127,12 @@ app.post("/log", async (req, res) => {
   }
 });
 
-// 🟢 CHECK IP (🔥 CORE) - UPDATED
+// 🟢 CHECK IP (🔥 CORE)
 app.post("/check-ip", async (req, res) => {
   try {
     const { ip } = req.body;
     const result = await checkIP(ip);
 
-    // 🔥 SIMPAN KE ELASTIC (tambahin lat/lng + field baru)
     try {
       await client.index({
         index: "logs",
@@ -138,6 +153,14 @@ app.post("/check-ip", async (req, res) => {
       console.log("⚠️ Elastic skip (optional)");
     }
 
+    triggerN8N({
+      ip: result.ip,
+      country: result.country,
+      isp: result.isp,
+      abuseScore: result.score,
+      action: result.threat,
+    });
+
     console.log("CEK IP RESULT:", result);
     res.json(result);
 
@@ -147,7 +170,7 @@ app.post("/check-ip", async (req, res) => {
   }
 });
 
-// 🌍 THREATS - buat globe + right panel (ENDPOINT BARU)
+// 🌍 THREATS - buat globe + right panel
 app.get("/threats", async (req, res) => {
   try {
     const result = await client.search({
@@ -174,6 +197,59 @@ app.get("/threats", async (req, res) => {
   } catch (err) {
     console.error("THREATS ERROR:", err);
     res.json([]);
+  }
+});
+
+// 🤖 AI THREATS - data dengan AI verdict (dari n8n workflow)
+app.get("/ai-threats", async (req, res) => {
+  try {
+    const result = await client.search({
+      index: "logs",
+      size: 100,
+      sort: [{ ai_analyzed_at: { order: "desc" } }],
+      query: {
+        exists: {
+          field: "ai_risk_level"
+        }
+      }
+    });
+
+    const aiThreats = result.hits.hits.map(h => h._source);
+    res.json(aiThreats);
+  } catch (err) {
+    console.error("AI THREATS ERROR:", err);
+    res.json([]);
+  }
+});
+
+// 📊 AI STATS
+app.get("/ai-stats", async (req, res) => {
+  try {
+    const result = await client.search({
+      index: "logs",
+      size: 1000,
+      query: {
+        exists: { field: "ai_risk_level" }
+      }
+    });
+
+    const items = result.hits.hits.map(h => h._source);
+
+    const stats = {
+      total: items.length,
+      critical: items.filter(i => i.ai_risk_level === "CRITICAL").length,
+      high: items.filter(i => i.ai_risk_level === "HIGH").length,
+      medium: items.filter(i => i.ai_risk_level === "MEDIUM").length,
+      low: items.filter(i => i.ai_risk_level === "LOW").length,
+      block: items.filter(i => i.ai_recommended_action === "BLOCK").length,
+      monitor: items.filter(i => i.ai_recommended_action === "MONITOR").length,
+      allow: items.filter(i => i.ai_recommended_action === "ALLOW").length,
+    };
+
+    res.json(stats);
+  } catch (err) {
+    console.error("AI STATS ERROR:", err);
+    res.json({});
   }
 });
 
@@ -234,4 +310,7 @@ app.get("/stats", async (req, res) => {
 // 🚀 RUN SERVER
 app.listen(5000, () => {
   console.log("🔥 Backend jalan di http://localhost:5000");
+  if (N8N_WEBHOOK_URL) {
+    console.log(`🤖 n8n AI workflow: ${N8N_WEBHOOK_URL}`);
+  }
 });

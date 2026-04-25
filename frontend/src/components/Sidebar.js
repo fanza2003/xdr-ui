@@ -6,6 +6,7 @@ export default function Sidebar() {
   const menu = [
     { name: "Dashboard", path: "/", icon: "📊" },
     { name: "CTI", path: "/cti", icon: "🎯" },
+    { name: "AI Analysis", path: "/ai", icon: "🤖" },
   ];
 
   return (
@@ -15,7 +16,6 @@ export default function Sidebar() {
         <span style={{ fontSize: "24px" }}>🛡️</span>
         <span style={{ fontSize: "18px", fontWeight: 700 }}>XDR</span>
       </div>
-
       {/* MENU */}
       <nav style={styles.nav}>
         {menu.map((item) => {
@@ -45,23 +45,23 @@ export default function Sidebar() {
 
 const styles = {
   container: {
-    height: "100%", // 🔥 ngikut parent, bukan 100vh
+    height: "100%",
     padding: "24px 16px",
     display: "flex",
     flexDirection: "column",
     gap: "24px",
-    background: "#0a0f1c" // sedikit beda dari bg utama biar ada separation
+    background: "#0a0f1c",
   },
   logo: {
     display: "flex",
     alignItems: "center",
     gap: "10px",
-    padding: "0 12px"
+    padding: "0 12px",
   },
   nav: {
     display: "flex",
     flexDirection: "column",
-    gap: "4px"
+    gap: "4px",
   },
   link: {
     display: "flex",
@@ -72,6 +72,6 @@ const styles = {
     textDecoration: "none",
     fontSize: "14px",
     fontWeight: 500,
-    transition: "all 0.15s ease"
-  }
+    transition: "all 0.15s ease",
+  },
 };
