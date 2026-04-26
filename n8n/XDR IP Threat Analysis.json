@@ -1,0 +1,212 @@
+{
+  "name": "XDR IP Threat Analysis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "xdr-ip-check",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -80,
+        0
+      ],
+      "id": "d862fec2-8a35-4bde-929f-eb9e2301adc3",
+      "name": "Webhook",
+      "webhookId": "b085abeb-242d-48f1-9a21-756138c1f9ef"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [\n    {\n      \"parts\": [\n        {\n          \"text\": \"Task: classify IP based on abuseScore.\\n\\n=== INPUT (USE THESE EXACT VALUES) ===\\nip = {{ $json.body.ip }}\\ncountry = {{ $json.body.country }}\\nisp = {{ $json.body.isp }}\\nabuseScore = {{ $json.body.abuseScore }}\\n=== END INPUT ===\\n\\nDecision table (use abuseScore from INPUT above, NOT any other number):\\n  abuseScore in [0, 9]   -> risk_level=LOW,      recommended_action=ALLOW\\n  abuseScore in [10, 39] -> risk_level=LOW,      recommended_action=MONITOR\\n  abuseScore in [40, 69] -> risk_level=MEDIUM,   recommended_action=MONITOR\\n  abuseScore in [70, 89] -> risk_level=HIGH,     recommended_action=BLOCK\\n  abuseScore in [90, 100]-> risk_level=CRITICAL, recommended_action=BLOCK\\n\\nOverride: if isp contains 'Google', 'Cloudflare', 'Amazon', 'Microsoft', or 'Apple' AND abuseScore=0, force risk_level=LOW and recommended_action=ALLOW.\\n\\nOutput JSON only. In the explanation field, copy the EXACT abuseScore value from INPUT (no rounding, no substitution):\\n{\\\"risk_level\\\":\\\"...\\\",\\\"threat_type\\\":\\\"short label\\\",\\\"recommended_action\\\":\\\"...\\\",\\\"explanation\\\":\\\"AbuseIPDB score is <copy abuseScore here>/100 from <copy isp here> in <copy country here>. <one short reason>.\\\"}\"\n        }\n      ]\n    }\n  ],\n  \"generationConfig\": {\n    \"responseMimeType\": \"application/json\",\n    \"temperature\": 0\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        144,
+        0
+      ],
+      "id": "898051fb-8fed-4272-9c39-3fb71d385dc8",
+      "name": "HTTP Request",
+      "retryOnFail": false,
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "lm0El80bMHKbYHXa",
+          "name": "Query Auth account"
+        },
+        "httpHeaderAuth": {
+          "id": "LQoycTSLakYNU83F",
+          "name": "Header Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// === STEP 1: Try parse Gemini response (graceful failure) ===\nlet aiVerdict = {};\nlet geminiSuccess = false;\n\ntry {\n  const rawText = $input.first().json.candidates[0].content.parts[0].text;\n  \n  function sanitizeJson(str) {\n    return str\n      .replace(/```json\\s*/gi, '')\n      .replace(/```\\s*/g, '')\n      .replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F]/g, '')\n      .trim();\n  }\n  \n  const cleanText = sanitizeJson(rawText);\n  \n  try {\n    aiVerdict = JSON.parse(cleanText);\n    geminiSuccess = true;\n  } catch (err) {\n    const match = cleanText.match(/\\{[\\s\\S]*\\}/);\n    if (match) {\n      try {\n        aiVerdict = JSON.parse(match[0]);\n        geminiSuccess = true;\n      } catch (e) {\n        aiVerdict = {};\n      }\n    }\n  }\n} catch (e) {\n  // Gemini quota exceeded / network error / no response\n  aiVerdict = {};\n  geminiSuccess = false;\n}\n\n// === STEP 2: Get webhook data ===\nconst webhookData = $('Webhook').item.json.body;\nconst score = Number(webhookData.abuseScore) || 0;\nconst isp = webhookData.isp || '';\nconst country = webhookData.country || '';\n\n// === STEP 3: DETERMINISTIC LOGIC (always reliable) ===\nlet finalRiskLevel, finalAction;\n\nif (score >= 90) {\n  finalRiskLevel = 'CRITICAL';\n  finalAction = 'BLOCK';\n} else if (score >= 70) {\n  finalRiskLevel = 'HIGH';\n  finalAction = 'BLOCK';\n} else if (score >= 40) {\n  finalRiskLevel = 'MEDIUM';\n  finalAction = 'MONITOR';\n} else if (score >= 10) {\n  finalRiskLevel = 'LOW';\n  finalAction = 'MONITOR';\n} else {\n  finalRiskLevel = 'LOW';\n  finalAction = 'ALLOW';\n}\n\n// Override: reputable ISP whitelist\nconst reputableISPs = ['Google', 'Cloudflare', 'Amazon', 'Microsoft', 'Apple', 'AWS'];\nconst isReputable = reputableISPs.some(name => isp.toLowerCase().includes(name.toLowerCase()));\nif (score === 0 && isReputable) {\n  finalRiskLevel = 'LOW';\n  finalAction = 'ALLOW';\n}\n\n// Override: high risk countries\nconst highRiskCountries = ['Russia', 'China', 'Iran', 'North Korea'];\nif (highRiskCountries.includes(country) && score >= 40 && finalRiskLevel === 'MEDIUM') {\n  finalRiskLevel = 'HIGH';\n  finalAction = 'BLOCK';\n}\n\n// === STEP 4: Validate & sanitize Gemini output ===\nconst isCorruptedByTemplate = (str) => {\n  if (typeof str !== 'string') return true;\n  return str.includes('{{') || str.includes('}}');\n};\n\n// Generate fallback threat_type\nlet fallbackThreatType;\nif (finalRiskLevel === 'CRITICAL') fallbackThreatType = 'Malicious Activity';\nelse if (finalRiskLevel === 'HIGH') fallbackThreatType = 'Suspicious Activity';\nelse if (finalRiskLevel === 'MEDIUM') fallbackThreatType = 'Potentially Risky';\nelse fallbackThreatType = 'Benign Traffic';\n\n// Generate fallback explanation\nconst fallbackExplanation = `AbuseIPDB score ${score}/100 from ${isp} in ${country}. Classified as ${finalRiskLevel} risk. Recommended action: ${finalAction}.`;\n\n// Use Gemini values if valid, else fallback\nconst safeThreatType = (geminiSuccess && !isCorruptedByTemplate(aiVerdict.threat_type) && aiVerdict.threat_type)\n  ? aiVerdict.threat_type\n  : fallbackThreatType;\n\nconst safeExplanation = (geminiSuccess && !isCorruptedByTemplate(aiVerdict.explanation) && aiVerdict.explanation)\n  ? aiVerdict.explanation\n  : fallbackExplanation;\n\n// === STEP 5: Final output ===\nreturn [\n  {\n    json: {\n      ip: webhookData.ip,\n      country: country,\n      isp: isp,\n      abuseScore: score,\n      action: webhookData.action,\n      ai_risk_level: finalRiskLevel,           // deterministic (selalu akurat)\n      ai_threat_type: safeThreatType,          // Gemini OR fallback\n      ai_recommended_action: finalAction,      // deterministic\n      ai_explanation: safeExplanation,         // Gemini OR fallback\n      ai_analyzed_at: new Date().toISOString(),\n      ai_source: geminiSuccess ? 'gemini' : 'rule-based'  // bonus: track source\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        0
+      ],
+      "id": "e8db65fd-a55c-4ff5-9107-5675c5563552",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://elasticsearch:9200/logs/_doc",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"ip\":\"{{ $json.ip }}\",\"country\":\"{{ $json.country }}\",\"isp\":\"{{ $json.isp }}\",\"abuseScore\":{{ $json.abuseScore }},\"action\":\"{{ $json.action }}\",\"ai_risk_level\":\"{{ $json.ai_risk_level }}\",\"ai_threat_type\":\"{{ $json.ai_threat_type }}\",\"ai_recommended_action\":\"{{ $json.ai_recommended_action }}\",\"ai_explanation\":\"{{ $json.ai_explanation }}\",\"ai_analyzed_at\":\"{{ $json.ai_analyzed_at }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        192
+      ],
+      "id": "a8f5dc5f-4584-404b-879c-85483d6a6e89",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d3f302ab-5097-4dc2-b5cd-0c0b5e179cf3",
+              "leftValue": "=={{ ['CRITICAL', 'HIGH', 'MEDIUM'].includes($json.ai_risk_level) || $json.ai_recommended_action === 'BLOCK' || ['Russia', 'China', 'Iran'].includes($json.country) }}",
+              "rightValue": "=={{ true }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "1d1bfd40-35f8-4b19-807b-02d44cc5c85c",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "chatId": "1355234419",
+        "text": "=🚨 <b>XDR ALERT</b> — {{ $json.ai_risk_level }}\n\n🌐 IP: <code>{{ $json.ip }}</code>\n📍 Location: {{ $json.country }}\n🏢 ISP: {{ $json.isp }}\n📊 AbuseIPDB: {{ $json.abuseScore }}/100\n\n🤖 <b>AI Verdict:</b>\n- Risk Level: <b>{{ $json.ai_risk_level }}</b>\n- Threat Type: {{ $json.ai_threat_type }}\n- Action: <b>{{ $json.ai_recommended_action }}</b>\n\n💡 <b>Analysis:</b>\n{{ $json.ai_explanation }}\n\n⏰ <i>{{ $json.ai_analyzed_at }}</i>",
+        "additionalFields": {
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        -96
+      ],
+      "id": "fc3aafad-6bf4-4ce8-b083-eea3a377954a",
+      "name": "Send a text message",
+      "webhookId": "deb1d5dd-dd8e-42b1-b0a8-19bd212b77cf",
+      "credentials": {
+        "telegramApi": {
+          "id": "45Muh1LxVc2nRVZP",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        []
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "c0a81acf-99b0-4f09-bd4f-a353a9504574",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "580e52926590dcb9e373a3f93422960d498e1c00f984d3a7ff2e061994266ae8"
+  },
+  "id": "i58MxH6xDxY6ltpN",
+  "tags": []
+}
